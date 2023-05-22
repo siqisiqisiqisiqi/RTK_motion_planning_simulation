@@ -44,7 +44,7 @@ def edges_of(vertices):
     edges = []
     N = 4
 
-    for i in range(3):
+    for i in range(2):
         edge = vertices[(i + 1)%N] - vertices[i]
         edges.append(edge)
 
@@ -55,8 +55,6 @@ def orthogonal(v):
     Return a 90 degree clockwise rotation of the vector v.
     """
     return np.array([-v[1], v[0]])
-
-import numpy as np
 
 def is_separating_axis(o, p1, p2):
     """
@@ -79,10 +77,10 @@ def is_separating_axis(o, p1, p2):
         max2 = max(max2, projection)
 
     if max1 >= min2 and max2 >= min1:
-        d = min(max2 - min1, max1 - min2)
-        return False
+        return False, None
     else:
-        return True
+        d = abs(max1 + min1 - (max2 + min2))/2 
+        return True, d
 
 def collide(p1, p2):
     '''
@@ -99,19 +97,25 @@ def collide(p1, p2):
     edges = edges_of(p1)
     edges += edges_of(p2)
     orthogonals = [orthogonal(e) for e in edges]
-
+    d_max = -1
     for o in orthogonals:
-        separates = is_separating_axis(o, p1, p2)
+
+        separates, d = is_separating_axis(o, p1, p2)
 
         if separates:
             # they do not collide and there is no push vector
-            return False
-    return True
+            if d > d_max:
+                d_max = d
+
+    if d_max > 0:
+        return False, d_max
+    else:
+        return True, None
 
 
 if __name__ == "__main__":
     # define two rectangle ob = [x,y,yaw,width,length]
-    ob1 = [3,5,pi/2,1.0,2.0]
+    ob1 = [4,8,pi/2,1.0,2.0]
     ob2 = [7,8,pi*2/6,2.0,3.0]
     ob = np.array([ob1,ob2])
 
@@ -119,8 +123,8 @@ if __name__ == "__main__":
     v1 = calculate_vertice(ob1)
     v2 = calculate_vertice(ob2)
 
-    detection = collide(v1, v2)
-    print(detection)
+    detection, dist = collide(v1, v2)
+    print(dist)
 
     # visualize the two bounding box
     ax = plt.gca()

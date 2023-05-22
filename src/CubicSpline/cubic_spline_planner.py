@@ -136,6 +136,18 @@ class CubicSpline1D:
         dx = x - self.x[i]
         ddy = 2.0 * self.c[i] + 6.0 * self.d[i] * dx
         return ddy
+    
+    def calc_third_derivative(self, x):
+        if x < self.x[0]:
+            return None
+        elif x > self.x[-1]:
+            return None
+
+        i = self.__search_index(x)
+        dx = x - self.x[i]
+        dddy = 6.0 * self.d[i]
+        return dddy
+
 
     def __search_index(self, x):
         """
@@ -286,6 +298,22 @@ class CubicSpline2D:
         ddy = self.sy.calc_second_derivative(s)
         k = (ddy * dx - ddx * dy) / ((dx ** 2 + dy ** 2)**(3 / 2))
         return k
+    
+
+    def calc_curvature_derivative(self, s):
+        dx = self.sx.calc_first_derivative(s)
+        ddx = self.sx.calc_second_derivative(s)
+        dddx = self.sx.calc_third_derivative(s)
+        dy = self.sy.calc_first_derivative(s)
+        ddy = self.sy.calc_second_derivative(s)
+        dddy = self.sy.calc_third_derivative(s)
+        kn = (ddy * dx - ddx * dy)
+        kd = ((dx ** 2 + dy ** 2)**(3 / 2))
+        dkn = dddy * dx + ddy * ddx - dddx * dy - ddx * ddy
+        dkd = (3/2) * ((dx ** 2 + dy ** 2)**(1/2)) * (2 * dx * ddx + 2 * dy * ddy)
+        dk = (dkn * kd - kn * dkd)/ (kd**2)
+        return dk
+
 
     def calc_yaw(self, s):
         """
@@ -312,16 +340,16 @@ def calc_spline_course(x, y, ds=0.1):
     sp = CubicSpline2D(x, y)
     s = list(np.arange(0, sp.s[-1], ds))
 
-    rx, ry, ryaw, rk = [], [], [], []
+    rx, ry, ryaw, rk, drk = [], [], [], [], []
     for i_s in s:
         ix, iy = sp.calc_position(i_s)
         rx.append(ix)
         ry.append(iy)
         ryaw.append(sp.calc_yaw(i_s))
         rk.append(sp.calc_curvature(i_s))
-
+        drk.append(sp.calc_curvature_derivative(i_s))
     # return rx, ry, ryaw, rk, s
-    return rx, ry, ryaw, rk, s, sp
+    return rx, ry, ryaw, rk, drk, s, sp
 
 
 def main_1d():

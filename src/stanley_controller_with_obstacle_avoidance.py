@@ -40,6 +40,7 @@ K_T = 0.1
 K_D = 1.0
 K_LAT = 1.0
 K_LON = 1.0
+K_OBS = 1.0
 
 k = 0.1  # control gain
 Kp = 1.0  # speed proportional gain
@@ -159,13 +160,18 @@ def obb_collision_detection(fp, ob):
     i = np.argmin(d_list)
     ob1 = [ob[i, 0], ob[i, 1], ob[i, 4], ob[i, 3], ob[i, 2]]
     v1 = calculate_vertice(ob1)
+    d_min = 255
+    i = 0
     for (ix, iy, yaw) in zip(fp.x, fp.y, fp.yaw):
         vehicle = [ix, iy, yaw, W, Length]
         v2 = calculate_vertice(vehicle)
-        detection = collide(v1, v2)
+        detection, d = collide(v1, v2)
         if detection == True:
-            return False
-    return True
+            return False, None
+        if d < d_min and i < 10:
+            d_min = d
+        i = i+1
+    return True, d
 
 
 def check_collision(fp, ob):
@@ -184,6 +190,7 @@ def check_collision(fp, ob):
 def check_paths(fplist, ob):
     ok_ind = []
     for i, _ in enumerate(fplist):
+        collision, d = obb_collision_detection(fplist[i], ob)
         if any([v > MAX_SPEED for v in fplist[i].s_d]):  # Max speed check
             print("exceed max speed")
             continue
@@ -196,10 +203,11 @@ def check_paths(fplist, ob):
         #     continue
         # elif not check_collision(fplist[i], ob):
         #     continue
-        elif not obb_collision_detection(fplist[i], ob):
-            continue
-        ok_ind.append(i)
-    return [fplist[i] for i in ok_ind]
+        elif not collision:
+                continue
+        fplist[i].cf = fplist[i].cf + K_OBS * 1/(d-1)
+        ok_ind.append(fplist[i])
+    return ok_ind
 
 
 def frenet_optimal_planning(csp, s0, c_speed, c_accel, c_d, c_d_d, c_d_dd, ob, road_bound):
@@ -293,6 +301,8 @@ class State(object):
         self.steering_angle = 0
         self.v = v
         self.tau = 2
+        self.a = 0
+        self.k = 100
 
     def update(self, acceleration, steering_command):
         """
@@ -307,17 +317,38 @@ class State(object):
         # delta = self.steering_angle + dt / self.tau * \
         #     (steering_command[-1] - self.steering_angle)
         # delta = np.clip(delta, -max_steer, max_steer)
-
+        self.a = acceleration
         delta = steering_command[-1]
         delta = np.clip(delta, -max_steer, max_steer)
 
+        dx = self.v * np.cos(self.yaw)
         self.x += self.v * np.cos(self.yaw) * dt
+
+        dy = self.v * np.sin(self.yaw)
         self.y += self.v * np.sin(self.yaw) * dt
+
+        dyaw = self.v / L * np.tan(delta)
         self.yaw += self.v / L * np.tan(delta) * dt
         self.yaw = normalize_angle(self.yaw)
-        self.v += acceleration * dt
-        self.steering_angle = delta
 
+        dv = acceleration
+        self.v += acceleration * dt
+
+        ddx = dv * np.cos(self.yaw) - self.v * np.sin(self.yaw) * dyaw
+        ddy = dv * np.sin(self.yaw) + self.v * np.cos(self.yaw) * dyaw
+        k = (ddy * dx - ddx * dy) / ((dx ** 2 + dy ** 2 + 1e-5)**(3 / 2))
+
+        self.steering_angle = delta
+        self.k = k
+
+class Desired_Trajectory:
+    def __init__(self, cx, cy, cyaw, ck, dck, s):
+        self.cx = cx
+        self.cy = cy
+        self.cyaw = cyaw
+        self.ck = ck
+        self.dck = dck
+        self.s = s
 
 class Stanley_Controller:
     """
@@ -340,7 +371,7 @@ class Stanley_Controller:
         trajectory = np.loadtxt(fp, skiprows=2, delimiter=',')
         ax, ay = trajectory[:, 0], trajectory[:, 1]
 
-        cx, cy, cyaw, ck, s, scp = cubic_spline_planner.calc_spline_course(
+        cx, cy, cyaw, ck, dck, s, scp = cubic_spline_planner.calc_spline_course(
             ax, ay, ds=0.1)
 
         self.cx_origin = cx
@@ -416,10 +447,14 @@ class Stanley_Controller:
                                    np.maximum(state.v, 0.2))
 
         delta = theta_e + theta_d + 0.7 * diff_angle
-        return delta
+        return delta, current_target_idx
 
 
-def coordinate_transform(s_list, state, cx, cy, last_target_idx, d_last, dd_last):
+def coordinate_transform(traj_d, state, last_target_idx):
+
+    cx = traj_d.cx
+    cy = traj_d.cy
+    s_list = traj_d.s
 
     fx = state.x
     fy = state.y
@@ -443,12 +478,23 @@ def coordinate_transform(s_list, state, cx, cy, last_target_idx, d_last, dd_last
                   cy[target_idx] - cy[target_idx - 5]])
     d_min = np.sign(np.cross(v2, v1)) * d[target_idx - last_target_idx]
 
+    cyaw = traj_d.cyaw[target_idx]
+    ck = traj_d.ck[target_idx]
+    dck = traj_d.dck[target_idx]
     s = s_list[target_idx]
+    
+    dx = fx - cx[target_idx]
+    dy = fy - cy[target_idx]
+    delta_yaw = normalize_angle(state.yaw - cyaw)
+    
+    tandeltayaw = np.tan(delta_yaw)
+    cosdeltayaw = np.cos(delta_yaw)
 
-    dd = (d_min-d_last)/dt
-    ddd = (dd - dd_last)/dt
-    d_last = d_min
-    dd_last = dd
+    oneMinusKRefd = 1 - ck * d_min
+    dd = oneMinusKRefd * tandeltayaw
+
+    kRefdd = dck * d_min + ck * dd
+    ddd = - kRefdd * tandeltayaw + oneMinusKRefd / cosdeltayaw / cosdeltayaw * (state.k * oneMinusKRefd / cosdeltayaw - ck)
 
     return s, d_min, dd, ddd, target_idx
 
@@ -482,8 +528,10 @@ def main():
     ob = np.array([[9.5, 15, 1.5, 1.0, 120 * pi / 180], [-7, 28.3, 1.5,
                   1.5, 200 * pi / 180], [-17.2, 15, 3.0, 1.5, -75 * pi / 180]])
 
-    cx, cy, cyaw, ck, s_list, csp = cubic_spline_planner.calc_spline_course(
+    cx, cy, cyaw, ck, dck, s_list, csp = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=0.1)
+
+    traj_d = Desired_Trajectory(cx, cy, cyaw, ck, dck, s_list)
 
     road_bound = calc_road_bound(cx, cy, cyaw, ck)
 
@@ -517,8 +565,6 @@ def main():
     c_d_dd = 0.0  # current lateral acceleration [m/s]
     s0 = 0.0  # current course position
 
-    d = c_d
-    dd = c_d_d
     while max_simulation_time >= time:
 
         path, fplist = frenet_optimal_planning(
@@ -528,7 +574,7 @@ def main():
 
         stanleycontroller.update_traj(path)
 
-        di = stanleycontroller.stanley_control(
+        di, stanley_idx = stanleycontroller.stanley_control(
             state, diff_angle)
 
         di_history = np.roll(di_history, -1)
@@ -537,12 +583,14 @@ def main():
         state.update(ai, di_history)
         last_target_idx = target_idx
         s, d, dd, ddd, target_idx = coordinate_transform(
-            s_list, state, cx, cy, last_target_idx, d, dd)
+            traj_d, state, last_target_idx)
 
         s0 = s
         c_d = d
-        c_d_d = path.d_d[1]
-        c_d_dd = path.d_dd[1]
+        # c_d_d = path.d_d[1]
+        # c_d_dd = path.d_dd[1]
+        c_d_d = dd
+        c_d_dd = ddd
         c_speed = state.v
         c_accel = ai
 
@@ -594,6 +642,7 @@ def main():
                 ax.add_patch(rect)
 
             # plt.plot(path.x[1:], path.y[1:], "-om")
+            plt.plot(path.x[stanley_idx], path.y[stanley_idx], "xk")
             for fp in fplist:
                 plt.plot(fp.x[1:], fp.y[1:])
             plt.plot(road_bound[0].x, road_bound[0].y,
