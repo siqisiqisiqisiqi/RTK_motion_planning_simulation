@@ -16,13 +16,13 @@ path = str(pathlib.Path(__file__).parent.parent)
 os.chdir(path)
 
 pi = math.pi
-# show_animation = True
 show_animation = True
+# show_animation = False
 max_steer = np.radians(45.0)  # [rad] max steering angle
 
 # Parameter
 MAX_SPEED = 15.0 / 3.6  # maximum speed [m/s]
-MAX_ACCEL = 2.0  # maximum acceleration [m/ss]
+MAX_ACCEL = 5.0  # maximum acceleration [m/ss]
 MAX_CURVATURE = 1.0  # maximum curvature [1/m]
 MAX_ROAD_WIDTH = 6.0  # maximum road width [m]
 D_ROAD_W = 1.0  # road width sampling length [m]
@@ -40,7 +40,7 @@ K_T = 0.1
 K_D = 1.0
 K_LAT = 1.0
 K_LON = 1.0
-K_OBS = 1.0
+K_OBS = 5.0
 
 k = 0.1  # control gain
 Kp = 1.0  # speed proportional gain
@@ -130,12 +130,13 @@ def calc_frenet_paths(c_speed, c_accel, c_d, c_d_d, c_d_dd, s0):
             for tv in np.arange(TARGET_SPEED - D_T_S * N_S_SAMPLE,
                                 TARGET_SPEED + D_T_S * N_S_SAMPLE, D_T_S):
                 tfp = copy.deepcopy(fp)
-                lon_qp = QuarticPolynomial(s0, c_speed, c_accel, tv, 0.0, Ti)
+                lon_qp = QuarticPolynomial(
+                    s0, c_speed, c_accel, tv, 0.0, Ti / tv)
 
-                tfp.s = [lon_qp.calc_point(t) for t in fp.t]
-                tfp.s_d = [lon_qp.calc_first_derivative(t) for t in fp.t]
-                tfp.s_dd = [lon_qp.calc_second_derivative(t) for t in fp.t]
-                tfp.s_ddd = [lon_qp.calc_third_derivative(t) for t in fp.t]
+                tfp.s = [lon_qp.calc_point(t) for t in fp.t/tv]
+                tfp.s_d = [lon_qp.calc_first_derivative(t) for t in fp.t/tv]
+                tfp.s_dd = [lon_qp.calc_second_derivative(t) for t in fp.t/tv]
+                tfp.s_ddd = [lon_qp.calc_third_derivative(t) for t in fp.t/tv]
 
                 Jp = sum(np.power(tfp.d_ddd, 2))  # square of jerk
                 Js = sum(np.power(tfp.s_ddd, 2))  # square of jerk
@@ -144,7 +145,7 @@ def calc_frenet_paths(c_speed, c_accel, c_d, c_d_d, c_d_dd, s0):
                 ds = (TARGET_SPEED - tfp.s_d[-1]) ** 2
 
                 tfp.cd = K_J * Jp + K_T * Ti + K_D * tfp.d[-1] ** 2
-                tfp.cv = K_J * Js + K_T * Ti + K_D * ds
+                tfp.cv = K_J * Js + K_T * Ti/tv + K_D * ds *2
                 tfp.cf = K_LAT * tfp.cd + K_LON * tfp.cv
 
                 frenet_paths.append(tfp)
@@ -170,7 +171,7 @@ def obb_collision_detection(fp, ob):
             return False, None
         if d < d_min and i < 10:
             d_min = d
-        i = i+1
+        i = i + 1
     return True, d
 
 
@@ -204,8 +205,8 @@ def check_paths(fplist, ob):
         # elif not check_collision(fplist[i], ob):
         #     continue
         elif not collision:
-                continue
-        fplist[i].cf = fplist[i].cf + K_OBS * 1/(d-1)
+            continue
+        fplist[i].cf = fplist[i].cf + K_OBS * 1 / (d - 1)
         ok_ind.append(fplist[i])
     return ok_ind
 
@@ -255,7 +256,7 @@ def calc_global_paths(fplist, csp):
 
         # calc curvature
         for i in range(len(fp.yaw) - 1):
-            fp.c.append((fp.yaw[i + 1] - fp.yaw[i]) / fp.ds[i])
+            fp.c.append((fp.yaw[i + 1] - fp.yaw[i]) / (fp.ds[i]) + 1e-5)
 
     return fplist
 
@@ -300,7 +301,7 @@ class State(object):
         self.yaw = yaw
         self.steering_angle = 0
         self.v = v
-        self.tau = 2
+        self.tau = 1
         self.a = 0
         self.k = 100
 
@@ -314,11 +315,11 @@ class State(object):
         :param delta: (float) Steering
         """
 
-        # delta = self.steering_angle + dt / self.tau * \
-        #     (steering_command[-1] - self.steering_angle)
-        # delta = np.clip(delta, -max_steer, max_steer)
+        delta = self.steering_angle + dt / self.tau * \
+            (steering_command[-1] - self.steering_angle)
+        delta = np.clip(delta, -max_steer, max_steer)
         self.a = acceleration
-        delta = steering_command[-1]
+        # delta = steering_command[-1]
         delta = np.clip(delta, -max_steer, max_steer)
 
         dx = self.v * np.cos(self.yaw)
@@ -341,6 +342,7 @@ class State(object):
         self.steering_angle = delta
         self.k = k
 
+
 class Desired_Trajectory:
     def __init__(self, cx, cy, cyaw, ck, dck, s):
         self.cx = cx
@@ -349,6 +351,7 @@ class Desired_Trajectory:
         self.ck = ck
         self.dck = dck
         self.s = s
+
 
 class Stanley_Controller:
     """
@@ -482,21 +485,30 @@ def coordinate_transform(traj_d, state, last_target_idx):
     ck = traj_d.ck[target_idx]
     dck = traj_d.dck[target_idx]
     s = s_list[target_idx]
-    
+
     dx = fx - cx[target_idx]
     dy = fy - cy[target_idx]
     delta_yaw = normalize_angle(state.yaw - cyaw)
-    
+
     tandeltayaw = np.tan(delta_yaw)
     cosdeltayaw = np.cos(delta_yaw)
 
     oneMinusKRefd = 1 - ck * d_min
-    dd = oneMinusKRefd * tandeltayaw
+    d_prime = oneMinusKRefd * tandeltayaw
+    sdot = state.v * cosdeltayaw / oneMinusKRefd
+    dck = dck / sdot
 
-    kRefdd = dck * d_min + ck * dd
-    ddd = - kRefdd * tandeltayaw + oneMinusKRefd / cosdeltayaw / cosdeltayaw * (state.k * oneMinusKRefd / cosdeltayaw - ck)
+    kRefdd = dck * d_min + ck * d_prime
+    d_prime_prime = - kRefdd * tandeltayaw + oneMinusKRefd / cosdeltayaw / \
+        cosdeltayaw * (state.k * oneMinusKRefd / cosdeltayaw - ck)
 
-    return s, d_min, dd, ddd, target_idx
+    deltayaw_prime = oneMinusKRefd / cosdeltayaw * state.k - ck
+    sdotdot = (state.a * cosdeltayaw - sdot ** 2 *
+               (d_prime * deltayaw_prime - dck)) / oneMinusKRefd
+
+    dd = sdot * d_prime
+    ddd = d_prime_prime * sdot**2 + d_prime * sdotdot
+    return s, d_min, d_prime, d_prime_prime, target_idx
 
 
 def calc_road_bound(cx, cy, cyaw, ck):
@@ -526,7 +538,7 @@ def main():
     ax, ay = trajectory[:, 0], trajectory[:, 1]
 
     ob = np.array([[9.5, 15, 1.5, 1.0, 120 * pi / 180], [-7, 28.3, 1.5,
-                  1.5, 200 * pi / 180], [-17.2, 15, 3.0, 1.5, -75 * pi / 180]])
+                  1.5, 200 * pi / 180], [-17.2, 15, 4.5, 1.5, -75 * pi / 180]])
 
     cx, cy, cyaw, ck, dck, s_list, csp = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=0.1)
@@ -565,6 +577,9 @@ def main():
     c_d_dd = 0.0  # current lateral acceleration [m/s]
     s0 = 0.0  # current course position
 
+    d_list = []
+    dd_list = []
+    ddd_list = []
     while max_simulation_time >= time:
 
         path, fplist = frenet_optimal_planning(
@@ -585,12 +600,17 @@ def main():
         s, d, dd, ddd, target_idx = coordinate_transform(
             traj_d, state, last_target_idx)
 
+        d_list.append(d)
+        dd_list.append(dd)
+        ddd_list.append(ddd)
+
         s0 = s
         c_d = d
         # c_d_d = path.d_d[1]
         # c_d_dd = path.d_dd[1]
         c_d_d = dd
         c_d_dd = ddd
+
         c_speed = state.v
         c_accel = ai
 
@@ -628,7 +648,6 @@ def main():
             # for stopping simulation with the esc key.
             plt.gcf().canvas.mpl_connect('key_release_event',
                                          lambda event: [exit(0) if event.key == 'escape' else None])
-            plt.plot(ob[:, 0], ob[:, 1], "xk")
 
             for i in range(ob.shape[0]):
                 theta = ob[i, 4]
@@ -638,19 +657,19 @@ def main():
                 xy = np.matmul(rotation_matrix, xy)
                 xy = np.array([[ob[i, 0]], [ob[i, 1]]]) - xy
                 rect = Rectangle((xy[0, 0], xy[1, 0]), ob[i, 2], ob[i, 3], angle=ob[i, 4]
-                                 * 180 / pi, linewidth=2, edgecolor='c', facecolor='None')
+                                 * 180 / pi, linewidth=2, edgecolor='c', facecolor='c')
                 ax.add_patch(rect)
 
-            # plt.plot(path.x[1:], path.y[1:], "-om")
+            plt.plot(path.x[1:], path.y[1:], "-om")
             plt.plot(path.x[stanley_idx], path.y[stanley_idx], "xk")
-            for fp in fplist:
-                plt.plot(fp.x[1:], fp.y[1:])
+            # for fp in fplist:
+            #     plt.plot(fp.x[1:], fp.y[1:])
             plt.plot(road_bound[0].x, road_bound[0].y,
-                     "k", linewidth=4, label="traj_bound")
+                     "k", linewidth=4)
             plt.plot(road_bound[1].x, road_bound[1].y, "k", linewidth=4)
-            plt.plot(cx, cy, ".r", label="course")
+            plt.plot(cx, cy, "--r", label="course")
             plt.plot(state.x, state.y, ".b")
-            plt.plot(x, y, "-b", label="trajectory")
+            plt.plot(x, y, "-b")
             plt.plot(path.x[target_idx - last_target_idx], path.y[target_idx - last_target_idx],
                      "xg", label="target")
             plt.axis("equal")
@@ -663,7 +682,7 @@ def main():
 
     if show_animation:  # pragma: no cover
         ax = plt.gca()
-        plt.plot(cx, cy, ".r", label="course")
+        plt.plot(cx, cy, ".r")
         plt.plot(x, y, "-b", label="trajectory")
         plt.plot(road_bound[0].x, road_bound[0].y,
                  "k", linewidth=4, label="traj_bound")
@@ -702,6 +721,14 @@ def main():
         # plt.ylabel("steering angle")
         # plt.grid(True)
         plt.show()
+
+    # diff_dd = np.diff(dd_list)/0.1
+    # plt.plot(diff_dd, label = "dd_")
+    # plt.plot(d_list, label = "d")
+    # plt.plot(dd_list, label = "dd")
+    # plt.plot(ddd_list, label = "ddd")
+    # plt.legend()
+    # plt.show()
 
 
 if __name__ == '__main__':
