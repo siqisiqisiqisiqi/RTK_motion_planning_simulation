@@ -5,13 +5,18 @@ Path tracking simulation with iterative linear model predictive control for spee
 author: Atsushi Sakai (@Atsushi_twi)
 
 """
+import pathlib
+import sys
+
+path = str(pathlib.Path(__file__).parent.parent)
+sys.path.insert(1, path)
+
 import matplotlib.pyplot as plt
 import cvxpy
 import math
 import numpy as np
-import sys
 import pathlib
-from CubicSpline import cubic_spline_planner
+from utils.CubicSpline import cubic_spline_planner
 
 NX = 4  # x = x, y, v, yaw
 NU = 2  # a = [accel, steer]
@@ -50,7 +55,7 @@ MAX_SPEED = 55.0 / 3.6  # maximum speed [m/s]
 MIN_SPEED = -20.0 / 3.6  # minimum speed [m/s]
 MAX_ACCEL = 1.0  # maximum accel [m/ss]
 
-show_animation = False
+show_animation = True
 
 
 class State:
@@ -609,7 +614,7 @@ def main():
     trajectory = np.loadtxt(fp, skiprows=2, delimiter=',')
     ax, ay = trajectory[:, 0], trajectory[:, 1]
 
-    cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
+    cx, cy, cyaw, ck, s, _, _ = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=0.1)
 
     sp = calc_speed_profile(cx, cy, cyaw, TARGET_SPEED)

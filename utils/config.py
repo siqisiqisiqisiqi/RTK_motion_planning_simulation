@@ -15,7 +15,7 @@ MAX_ROAD_WIDTH = 6.0  # maximum road width [m]
 MAX_SPEED = 15.0 / 3.6  # maximum speed [m/s]
 MAX_ACCEL = 5.0  # maximum acceleration [m/ss]
 MAX_STEER = np.radians(45.0)  # [rad] max steering angle
-
+MAX_SIMULATION_TIME = 200
 # Local path planning parameter
 
 D_ROAD_W = 1.0  # road width sampling length [m]

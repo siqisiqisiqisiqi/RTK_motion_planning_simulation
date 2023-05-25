@@ -18,12 +18,15 @@ class FrenetPath:
         self.yaw = []
         self.ds = []
         self.c = []
+        self.v = []
+
 
 class DesiredCartesianTrajectory:
-    def __init__(self, cx, cy, cyaw, ck, dck, s):
+    def __init__(self, cx, cy, cyaw, ck, dck, s, csp):
         self.cx = cx
         self.cy = cy
         self.cyaw = cyaw
         self.ck = ck
         self.dck = dck
         self.s = s
+        self.csp = csp

@@ -1,15 +1,16 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import sys
-import pathlib
-import os
 
-from utils.CubicSpline import cubic_spline_planner
-from matplotlib.patches import Rectangle
-import math
+import pathlib
+import sys
 
 path = str(pathlib.Path(__file__).parent.parent)
-os.chdir(path)
+sys.path.insert(1, path)
+
+from matplotlib.patches import Rectangle
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+
+from utils.CubicSpline import cubic_spline_planner
 
 pi = math.pi
 # show_animation = True
@@ -104,7 +105,7 @@ class Stanley_Controller:
         trajectory = np.loadtxt(fp, skiprows=2, delimiter=',')
         ax, ay = trajectory[:, 0], trajectory[:, 1]
 
-        cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
+        cx, cy, cyaw, _, _, _, _ = cubic_spline_planner.calc_spline_course(
             ax, ay, ds=0.1)
         self.cx = cx
         self.cy = cy
@@ -182,7 +183,7 @@ def main():
     trajectory = np.loadtxt(fp, skiprows=2, delimiter=',')
     ax, ay = trajectory[:, 0], trajectory[:, 1]
 
-    cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
+    cx, cy, _, _, _, _, _ = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=0.1)
     # print(cx)
 
