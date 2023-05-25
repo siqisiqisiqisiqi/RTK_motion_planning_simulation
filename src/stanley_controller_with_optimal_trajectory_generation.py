@@ -1,94 +1,25 @@
-import numpy as np
-import copy
-import matplotlib.pyplot as plt
-import sys
 import pathlib
-import os
-
-from QuinticPolynomialsPlanner.quintic_polynomials_planner import \
-    QuinticPolynomial
-from CubicSpline import cubic_spline_planner
-from matplotlib.patches import Rectangle
-from obb_collision_detection import calculate_vertice, collide
-import math
+import sys
+import copy
 
 path = str(pathlib.Path(__file__).parent.parent)
-os.chdir(path)
+sys.path.insert(1, path)
+
+from matplotlib.patches import Rectangle
+import matplotlib.pyplot as plt
+import numpy as np
+import math
+
+from utils.QuinticPolynomialsPlanner.quintic_polynomials_planner import \
+    QuinticPolynomial
+from utils.CubicSpline import cubic_spline_planner
+from utils.Path import FrenetPath, DesiredCartesianTrajectory
+from utils.QuarticPolynomial import QuarticPolynomial
+from obb_collision_detection import calculate_vertice, collide
+from config import *
 
 pi = math.pi
 show_animation = True
-# show_animation = False
-max_steer = np.radians(45.0)  # [rad] max steering angle
-
-# Parameter
-MAX_SPEED = 15.0 / 3.6  # maximum speed [m/s]
-MAX_ACCEL = 5.0  # maximum acceleration [m/ss]
-MAX_CURVATURE = 1.0  # maximum curvature [1/m]
-MAX_ROAD_WIDTH = 6.0  # maximum road width [m]
-D_ROAD_W = 1.0  # road width sampling length [m]
-DT = 0.1  # time tick [s]
-MAX_T = 5.0  # max prediction time [m]
-MIN_T = 4.9  # min prediction time [m]
-TARGET_SPEED = 7.2 / 3.6  # target speed [m/s]
-D_T_S = 3.6 / 3.6  # target speed sampling length [m/s]
-N_S_SAMPLE = 1  # sampling number of target speed
-ROBOT_RADIUS = 1.0  # robot radius [m]
-
-# cost weights
-K_J = 0.1
-K_T = 0.1
-K_D = 1.0
-K_LAT = 1.0
-K_LON = 1.0
-K_OBS = 5.0
-
-k = 0.1  # control gain
-Kp = 1.0  # speed proportional gain
-dt = 0.1  # [s] time difference
-L = 1.25  # [m] Wheel base of vehicle
-W = 1.0  # [m] width of vehicle
-Length = 2.1  # [m] total length of the wehicle
-
-
-class QuarticPolynomial:
-
-    def __init__(self, xs, vxs, axs, vxe, axe, time):
-        # calc coefficient of quartic polynomial
-
-        self.a0 = xs
-        self.a1 = vxs
-        self.a2 = axs / 2.0
-
-        A = np.array([[3 * time ** 2, 4 * time ** 3],
-                      [6 * time, 12 * time ** 2]])
-        b = np.array([vxe - self.a1 - 2 * self.a2 * time,
-                      axe - 2 * self.a2])
-        x = np.linalg.solve(A, b)
-
-        self.a3 = x[0]
-        self.a4 = x[1]
-
-    def calc_point(self, t):
-        xt = self.a0 + self.a1 * t + self.a2 * t ** 2 + \
-            self.a3 * t ** 3 + self.a4 * t ** 4
-
-        return xt
-
-    def calc_first_derivative(self, t):
-        xt = self.a1 + 2 * self.a2 * t + \
-            3 * self.a3 * t ** 2 + 4 * self.a4 * t ** 3
-
-        return xt
-
-    def calc_second_derivative(self, t):
-        xt = 2 * self.a2 + 6 * self.a3 * t + 12 * self.a4 * t ** 2
-
-        return xt
-
-    def calc_third_derivative(self, t):
-        xt = 6 * self.a3 + 24 * self.a4 * t
-
-        return xt
 
 
 def normalize_angle(angle):
@@ -133,10 +64,12 @@ def calc_frenet_paths(c_speed, c_accel, c_d, c_d_d, c_d_dd, s0):
                 lon_qp = QuarticPolynomial(
                     s0, c_speed, c_accel, tv, 0.0, Ti / tv)
 
-                tfp.s = [lon_qp.calc_point(t) for t in fp.t/tv]
-                tfp.s_d = [lon_qp.calc_first_derivative(t) for t in fp.t/tv]
-                tfp.s_dd = [lon_qp.calc_second_derivative(t) for t in fp.t/tv]
-                tfp.s_ddd = [lon_qp.calc_third_derivative(t) for t in fp.t/tv]
+                tfp.s = [lon_qp.calc_point(t) for t in fp.t / tv]
+                tfp.s_d = [lon_qp.calc_first_derivative(t) for t in fp.t / tv]
+                tfp.s_dd = [lon_qp.calc_second_derivative(
+                    t) for t in fp.t / tv]
+                tfp.s_ddd = [lon_qp.calc_third_derivative(
+                    t) for t in fp.t / tv]
 
                 Jp = sum(np.power(tfp.d_ddd, 2))  # square of jerk
                 Js = sum(np.power(tfp.s_ddd, 2))  # square of jerk
@@ -145,7 +78,7 @@ def calc_frenet_paths(c_speed, c_accel, c_d, c_d_d, c_d_dd, s0):
                 ds = (TARGET_SPEED - tfp.s_d[-1]) ** 2
 
                 tfp.cd = K_J * Jp + K_T * Ti + K_D * tfp.d[-1] ** 2
-                tfp.cv = K_J * Js + K_T * Ti/tv + K_D * ds *2
+                tfp.cv = K_J * Js + K_T * Ti / tv + K_D * ds * 2
                 tfp.cf = K_LAT * tfp.cd + K_LON * tfp.cv
 
                 frenet_paths.append(tfp)
@@ -164,7 +97,7 @@ def obb_collision_detection(fp, ob):
     d_min = 255
     i = 0
     for (ix, iy, yaw) in zip(fp.x, fp.y, fp.yaw):
-        vehicle = [ix, iy, yaw, W, Length]
+        vehicle = [ix, iy, yaw, W_V, L_V]
         v2 = calculate_vertice(vehicle)
         detection, d = collide(v1, v2)
         if detection == True:
@@ -179,9 +112,7 @@ def check_collision(fp, ob):
     for i in range(len(ob[:, 0])):
         d = [((ix - ob[i, 0]) ** 2 + (iy - ob[i, 1]) ** 2)
              for (ix, iy) in zip(fp.x, fp.y)]
-
-        collision = any([di <= (W / 2 + ob[i, 3]) ** 2 for di in d])
-
+        collision = any([di <= (W_V / 2 + ob[i, 3]) ** 2 for di in d])
         if collision:
             return False
 
@@ -199,9 +130,6 @@ def check_paths(fplist, ob):
                   fplist[i].s_dd]):  # Max accel check
             print("exceed max acceleration")
             continue
-        # elif any([abs(c) > MAX_CURVATURE for c in
-        #           fplist[i].c]):  # Max curvature check
-        #     continue
         # elif not check_collision(fplist[i], ob):
         #     continue
         elif not collision:
@@ -261,28 +189,6 @@ def calc_global_paths(fplist, csp):
     return fplist
 
 
-class FrenetPath:
-    def __init__(self):
-        self.t = []
-        self.d = []
-        self.d_d = []
-        self.d_dd = []
-        self.d_ddd = []
-        self.s = []
-        self.s_d = []
-        self.s_dd = []
-        self.s_ddd = []
-        self.cd = 0.0
-        self.cv = 0.0
-        self.cf = 0.0
-
-        self.x = []
-        self.y = []
-        self.yaw = []
-        self.ds = []
-        self.c = []
-
-
 class State(object):
     """
     Class representing the state of a vehicle.
@@ -315,25 +221,25 @@ class State(object):
         :param delta: (float) Steering
         """
 
-        delta = self.steering_angle + dt / self.tau * \
+        delta = self.steering_angle + DT / self.tau * \
             (steering_command[-1] - self.steering_angle)
-        delta = np.clip(delta, -max_steer, max_steer)
+        delta = np.clip(delta, -MAX_STEER, MAX_STEER)
         self.a = acceleration
         # delta = steering_command[-1]
-        delta = np.clip(delta, -max_steer, max_steer)
+        # delta = np.clip(delta, -MAX_STEER, MAX_STEER)
 
         dx = self.v * np.cos(self.yaw)
-        self.x += self.v * np.cos(self.yaw) * dt
+        self.x += self.v * np.cos(self.yaw) * DT
 
         dy = self.v * np.sin(self.yaw)
-        self.y += self.v * np.sin(self.yaw) * dt
+        self.y += self.v * np.sin(self.yaw) * DT
 
-        dyaw = self.v / L * np.tan(delta)
-        self.yaw += self.v / L * np.tan(delta) * dt
+        dyaw = self.v / L_W * np.tan(delta)
+        self.yaw += self.v / L_W * np.tan(delta) * DT
         self.yaw = normalize_angle(self.yaw)
 
         dv = acceleration
-        self.v += acceleration * dt
+        self.v += acceleration * DT
 
         ddx = dv * np.cos(self.yaw) - self.v * np.sin(self.yaw) * dyaw
         ddy = dv * np.sin(self.yaw) + self.v * np.cos(self.yaw) * dyaw
@@ -341,16 +247,6 @@ class State(object):
 
         self.steering_angle = delta
         self.k = k
-
-
-class Desired_Trajectory:
-    def __init__(self, cx, cy, cyaw, ck, dck, s):
-        self.cx = cx
-        self.cy = cy
-        self.cyaw = cyaw
-        self.ck = ck
-        self.dck = dck
-        self.s = s
 
 
 class Stanley_Controller:
@@ -361,12 +257,6 @@ class Stanley_Controller:
         fp: trajecory file path
     Output:
         delta: Steering angle in radian
-
-    author: Siqi Zheng
-
-    Ref:
-        - [Stanley: The robot that won the DARPA grand challenge](http://isl.ecst.csuchico.edu/DOCS/darpa2005/DARPA%202005%20Stanley.pdf)
-        - [Autonomous Automobile Path Tracking](https://www.ri.cmu.edu/pub_files/2009/2/Automatic_Steering_Methods_for_Autonomous_Automobile_Path_Tracking.pdf)
 
     """
 
@@ -398,7 +288,7 @@ class Stanley_Controller:
         :param current: (float)
         :return: (float)
         """
-        return Kp * (target - current)
+        return KP_S * (target - current)
 
     def calc_target_index(self, state):
         """
@@ -410,8 +300,8 @@ class Stanley_Controller:
         :return: (int, float)
         """
         # Calc front axle position
-        fx = state.x + L * np.cos(state.yaw)
-        fy = state.y + L * np.sin(state.yaw)
+        fx = state.x + L_W * np.cos(state.yaw)
+        fy = state.y + L_W * np.sin(state.yaw)
 
         # Search nearest point index
         dx = [fx - icx for icx in self.cx]
@@ -440,13 +330,10 @@ class Stanley_Controller:
         """
         current_target_idx, error_front_axle = self.calc_target_index(state)
 
-        # if last_target_idx >= current_target_idx:
-        #     current_target_idx = last_target_idx
-
         # theta_e corrects the heading error
         theta_e = normalize_angle(self.cyaw[current_target_idx] - state.yaw)
         # theta_d corrects the cross track error
-        theta_d = 0.5 * np.arctan2(k * error_front_axle,
+        theta_d = 0.5 * np.arctan2(K_S * error_front_axle,
                                    np.maximum(state.v, 0.2))
 
         delta = theta_e + theta_d + 0.7 * diff_angle
@@ -543,7 +430,7 @@ def main():
     cx, cy, cyaw, ck, dck, s_list, csp = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=0.1)
 
-    traj_d = Desired_Trajectory(cx, cy, cyaw, ck, dck, s_list)
+    traj_d = DesiredCartesianTrajectory(cx, cy, cyaw, ck, dck, s_list)
 
     road_bound = calc_road_bound(cx, cy, cyaw, ck)
 
@@ -620,7 +507,7 @@ def main():
 
         diff_angle = di - state.steering_angle
 
-        time += dt
+        time += DT
 
         x.append(state.x)
         y.append(state.y)
@@ -631,7 +518,7 @@ def main():
         theta = state.yaw
         rotation_matrix = np.array(
             [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
-        xy = np.array([[Length / 2], [W / 2]])
+        xy = np.array([[L_V / 2], [W_V / 2]])
         xy = np.matmul(rotation_matrix, xy)
         xy = np.array([[state.x], [state.y]]) - xy
 
@@ -642,7 +529,7 @@ def main():
         if show_animation:  # pragma: no cover
             ax = plt.gca()
             plt.cla()
-            rect = Rectangle((xy[0, 0], xy[1, 0]), Length, W, angle=state.yaw *
+            rect = Rectangle((xy[0, 0], xy[1, 0]), L_V, W_V, angle=state.yaw *
                              180 / pi, linewidth=2, edgecolor='b', facecolor='none')
             ax.add_patch(rect)
             # for stopping simulation with the esc key.

@@ -4,7 +4,7 @@ import sys
 import pathlib
 import os
 
-from CubicSpline import cubic_spline_planner
+from utils.CubicSpline import cubic_spline_planner
 from matplotlib.patches import Rectangle
 import math
 
