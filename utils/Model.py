@@ -52,9 +52,9 @@ class State(object):
         self.dd = 0
         self.ddd = 0
         self.target_idx = 0
+        self.diff_angle = 0
         self.traj_d = traj_d
         self.di_history = np.zeros(3)
-        
 
     def update(self, acceleration, steering_command):
         """
@@ -94,10 +94,15 @@ class State(object):
         k = (ddy * dx - ddx * dy) / ((dx ** 2 + dy ** 2 + 1e-5)**(3 / 2))
 
         self.steering_angle = delta
+        self.diff_angle = steering_command - delta
         self.k = k
 
     def cart2frenet(self):
-
+        """converts the cartesianStates x, y, theta, kappa, speed, acceleration
+        to the Frenet states s, ds/dt, d2s/dt2, l, dl/ds, d2l/ds2, 
+        where s is arc length from the first point in reference path, 
+        and l is normal distance from the closest point at s on the reference path.
+        """
         cx = self.traj_d.cx
         cy = self.traj_d.cy
         s_list = self.traj_d.s

@@ -4,10 +4,10 @@ import sys
 path = str(pathlib.Path(__file__).parent.parent)
 sys.path.insert(1, path)
 
+import math
 import numpy as np
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
-import math
 
 from utils.config import *
 from utils.Path import FrenetPath

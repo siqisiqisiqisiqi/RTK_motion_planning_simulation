@@ -5,8 +5,6 @@ import copy
 path = str(pathlib.Path(__file__).parent.parent)
 sys.path.insert(1, path)
 
-from matplotlib.patches import Rectangle
-import matplotlib.pyplot as plt
 import numpy as np
 import math
 
@@ -42,6 +40,8 @@ def normalize_angle(angle):
 
 
 class FrenetPathPlanning():
+    """Frenet path planning algorithm
+    """
     def __init__(self, ob, traj_d) -> None:
         self.ob = ob
         self.traj_d = traj_d
@@ -82,6 +82,8 @@ class FrenetPathPlanning():
 
     def obb_collision_detection(self, fp):
         d_list = []
+        d_min = 255
+        i = 0
         for i in range(len(self.ob[:, 0])):
             d = [((fp.x[1] - self.ob[i, 0]) ** 2 + (fp.y[1] - self.ob[i, 1]) ** 2)]
             d_list.append(d)
@@ -89,8 +91,6 @@ class FrenetPathPlanning():
         ob1 = [self.ob[i, 0], self.ob[i, 1],
                self.ob[i, 4], self.ob[i, 3], self.ob[i, 2]]
         v1 = calculate_vertice(ob1)
-        d_min = 255
-        i = 0
         for (ix, iy, yaw) in zip(fp.x, fp.y, fp.yaw):
             vehicle = [ix, iy, yaw, W_V, L_V]
             v2 = calculate_vertice(vehicle)
@@ -287,16 +287,13 @@ def main():
     traj_d = DesiredCartesianTrajectory(cx, cy, cyaw, ck, dck, s_list, csp)
 
     # Initial state
-    stanleycontroller = Stanley_Controller(fp)
-    state = State(traj_d, x=0, y=0, yaw=0, v=0.0)
-    traj_actual = FrenetPath()
     time = 0.0
-
     delta_d_list = []
     delta_r_list = []
-
-    diff_angle = 0
+    traj_actual = FrenetPath()
     visual = visualization(traj_d, ob)
+    stanleycontroller = Stanley_Controller(fp)
+    state = State(traj_d, x=0, y=0, yaw=0, v=0.0)
     frenet_optimal_planner = FrenetPathPlanning(ob, traj_d)
 
     while MAX_SIMULATION_TIME >= time:
@@ -304,14 +301,12 @@ def main():
         path, _ = frenet_optimal_planner.frenet_optimal_planning(state)
         stanleycontroller.update_traj(path)
         ai = stanleycontroller.pid_control(path.s_d[-1], state.v)
-        di, stanley_idx = stanleycontroller.stanley_control(state, diff_angle)
+        di, stanley_idx = stanleycontroller.stanley_control(state, state.diff_angle)
 
         state.update(ai, di)
         state.cart2frenet()
 
-        diff_angle = di - state.steering_angle
         time += DT
-
         delta_d_list.append(di)
         delta_r_list.append(state.steering_angle)
         traj_actual.x.append(state.x)
