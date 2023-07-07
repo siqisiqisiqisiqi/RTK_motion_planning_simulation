@@ -83,7 +83,6 @@ class FrenetPathPlanning():
     def obb_collision_detection(self, fp):
         d_list = []
         d_min = 255
-        i = 0
         for i in range(len(self.ob[:, 0])):
             d = [((fp.x[1] - self.ob[i, 0]) ** 2 + (fp.y[1] - self.ob[i, 1]) ** 2)]
             d_list.append(d)
@@ -97,9 +96,8 @@ class FrenetPathPlanning():
             detection, d = collide(v1, v2)
             if detection == True:
                 return False, None
-            if d < d_min and i < 10:
+            if d < d_min:
                 d_min = d
-            i = i + 1
         return True, d
 
     def calc_frenet_paths(self, state):
