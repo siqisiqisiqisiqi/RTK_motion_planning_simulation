@@ -275,7 +275,7 @@ class Stanley_Controller:
 
 def main():
     #  target course
-    fp = "data/RTK_read_data/keypoints.csv"
+    fp = "data/RTK_read_data/May_3/keypoints.csv"
     trajectory = np.loadtxt(fp, skiprows=2, delimiter=',')
     ax, ay = trajectory[:, 0], trajectory[:, 1]
     ob = np.array([[9.5, 15, 1.5, 1.0, 120 * pi / 180], [-7, 28.3, 1.5,
